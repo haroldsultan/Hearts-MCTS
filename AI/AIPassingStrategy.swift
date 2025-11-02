@@ -1,70 +1,78 @@
-// Hearts Card Passing Strategy (Heuristic)
-// Focuses on dumping points and creating voids aggressively.
-
 import Foundation
 
+// NOTE: The Card, Suit, and Rank types must be defined in your main project files
+// for this passing strategy implementation to compile and function correctly.
+
 class AIPassingStrategy {
-    /// Choose up to 3 cards to pass (heuristic, ranked by danger score)
+    
+    /**
+     Choose up to 3 cards to pass based on a heuristic focused on dumping points,
+     especially high spades and high hearts, while preserving low "escape" cards.
+     
+     - Parameter hand: The AI player's current 13-card hand.
+     - Returns: An array of up to 3 cards to be passed.
+     */
     static func selectCardsToPass(hand: [Card]) -> [Card] {
-        // Quick helpers (assuming Card, Rank, Suit are available)
+        guard !hand.isEmpty else { return [] }
+        
+        // --- Helper Functions (relying on external Card/Rank/Suit) ---
         func isQSpade(_ c: Card) -> Bool { c.rank == .queen && c.suit == .spades }
-        // J, Q, K, A
+        // J, Q, K, A (High value cards)
         func isHigh(_ c: Card) -> Bool { c.rank.value >= Rank.jack.value }
-        // 2, 3, 4, 5 (Good "escape" cards)
+        // 2, 3, 4, 5 (Good "escape" cards to lose lead)
         func isLow(_ c: Card) -> Bool { c.rank.value <= 5 }
 
         // Count suits for tactical analysis
         let suitCounts = Dictionary(grouping: hand, by: { $0.suit }).mapValues { $0.count }
         
-        // Score each card (higher = more desirable to pass)
+        // Score each card (higher score = more desirable to pass)
         var scores: [(card: Card, score: Int)] = hand.map { ($0, 0) }
 
         for i in 0..<scores.count {
             var score = 0
             let c = scores[i].card
 
-            // 1) Queen of Spades: Highest priority to pass
+            // 1) Queen of Spades (Base Danger Score)
             if isQSpade(c) {
                 let spadeCount = suitCounts[.spades] ?? 0
-                // Base score is high (300). If we hold 4+ spades (control), reduce score significantly
-                // to encourage keeping it for protection.
-                score += (spadeCount >= 4) ? 75 : 300
+                // Massive score (350). Reduced if the player has 5+ spades (strong protection).
+                score += (spadeCount >= 5) ? 100 : 350
             }
 
-            // 2) Dangerous Spades: A and K are highly risky if they're not Q♠
-            if c.suit == .spades {
+            // 2) Dangerous Spades (A/K protection cards)
+            if c.suit == .spades && !isQSpade(c) {
                 switch c.rank {
-                case .ace: score += 150 // Very dangerous, often forced to win
-                case .king: score += 120
-                case .queen: break // Handled above
-                default: score += 10 // Small bias for mid-spades
+                case .ace: score += 180 // Extremely dangerous to hold without Q
+                case .king: score += 140
+                default: break
                 }
             }
 
-            // 3) Hearts: Score proportional to rank (higher hearts are worse)
+            // 3) Hearts (Point Cards)
             if c.suit == .hearts {
-                // High hearts (A-14 to 2-2) are a huge liability.
-                score += c.rank.value * 8
+                // Score proportional to rank (A is 14 points, 2 is 2 points)
+                score += c.rank.value * 10
             }
 
-            // 4) High Clubs/Diamonds: Aggressively dump high cards in short suits to create voids
+            // 4) High Off-Suit Cards (Clubs/Diamonds) to create Voids
             if (c.suit == .clubs || c.suit == .diamonds) && isHigh(c) {
                 let count = suitCounts[c.suit] ?? 0
-                // Score based on rank (high) + large bonus if short suit (<= 2)
-                score += 40 + (c.rank.value - 10) * 10 + (count <= 2 ? 60 : 0) // Increased multipliers
+                // Score based on rank + huge bonus if short suit (<= 2 cards)
+                score += 50 + (c.rank.value - 10) * 12
+                score += (count <= 2) ? 80 : 0
             }
 
-            // 5) Creating Voids: boost singletons
+            // 5) Singleton Bonus (Aggressively seeking voids for sloughing)
             let countInSuit = suitCounts[c.suit] ?? 0
             if countInSuit == 1 {
-                // Big bonus for non-spade singletons; slightly more conservative with spades
-                score += (c.suit == .spades) ? 30 : 80
+                // Big bonus for non-spade singletons, slightly less for spades (need control)
+                score += (c.suit == .spades) ? 40 : 100
             }
             
-            // 6) Keep a few low “escape” cards: penalize passing very low cards
+            // 6) Penalize passing low "safe" cards
             if isLow(c) {
-                // Penalize keeping 2/3/4/5 cards that are useful to duck or lead safely
-                score -= 40
+                // Keep the lowest 2s/3s/4s for safe leading and ducking
+                score -= 50
             }
 
             // 7) Tie-breaker: higher rank -> slight bonus
@@ -76,41 +84,45 @@ class AIPassingStrategy {
         // Sort descending by score
         let ordered = scores.sorted { $0.score > $1.score }.map { $0.card }
 
-        // Final Selection Logic: Pick top 3, enforcing a defensive spade limit
+        // --- Final Selection Logic: Limit defensive passes ---
+        
         var picks: [Card] = []
         var nonQSpadesPicked = 0
-        let maxNonQSpades = 2
+        // Limit the number of non-Q♠ high spades (A/K) we pass, as they are crucial protection
+        let maxNonQSpadesToPass = 1
 
         for c in ordered {
             if picks.count == 3 { break }
 
             let isCurrentQSpade = isQSpade(c)
-            let isCurrentSpade = c.suit == .spades
+            let isCurrentHighSpade = c.suit == .spades && c.rank.value >= Rank.king.value
 
-            if isCurrentSpade {
+            if c.suit == .spades {
                 if isCurrentQSpade {
-                    // Always pick Q♠ if it's ranked in the top few
+                    // Always pass Q♠ if it ranks highly
                     picks.append(c)
-                } else if nonQSpadesPicked < maxNonQSpades {
-                    // Pick non-Q♠ up to the limit of 2 (A/K/J/10 etc.)
+                } else if isCurrentHighSpade && nonQSpadesPicked < maxNonQSpadesToPass {
+                    // Pass A/K of Spades only if we haven't hit the limit
                     picks.append(c)
                     nonQSpadesPicked += 1
+                } else if !isCurrentHighSpade {
+                    // Pass medium/low spades freely if slots are available
+                    picks.append(c)
                 }
-                // else: skip this non-Q♠ spade, as it would exceed the defensive limit
             } else {
                 // Always pick non-spade cards (Hearts, Clubs, Diamonds)
                 picks.append(c)
             }
         }
         
-        // This ensures we always return 3 cards if possible, filling with the next best if needed.
-        // This handles cases where we skipped too many spades but still need 3 cards.
+        // Fallback: If we couldn't find 3 highly-scored cards (e.g., due to the spade limit),
+        // fill the remaining slots with the next best available cards.
         while picks.count < 3 {
-             if let nextCard = ordered.first(where: { !picks.contains($0) }) {
-                 picks.append(nextCard)
-             } else {
-                 break
-             }
+            if let nextCard = ordered.first(where: { !picks.contains($0) }) {
+                picks.append(nextCard)
+            } else {
+                break
+            }
         }
         
         return Array(picks.prefix(3))

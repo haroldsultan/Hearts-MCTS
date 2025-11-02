@@ -386,7 +386,6 @@ class GameViewModel: ObservableObject {
             heartsBroken: self.heartsBroken,
             playedCardsThisRound: self.playedCardsThisRound,
             iterations: iterations,
-            numSamples: 25
         )
         
         if let cardToPlay = bestCard {
